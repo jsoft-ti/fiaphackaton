@@ -1,0 +1,127 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  # A database backed by a ReadWriteOnce PVC must never run more than one
+  # replica, and rolling updates on it are inherently unsafe (two Postgres
+  # processes cannot share one data directory) - Recreate guarantees the old
+  # Pod is fully terminated (and releases the PVC) before the new one starts.
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: campaign-system
+    spec:
+      # No dedicated ServiceAccount for the stock database images - they
+      # never talk to the Kubernetes API, so the default SA (with no
+      # permissions bound to it) already satisfies least-privilege.
+      automountServiceAccountToken: false
+      securityContext:
+        # NOTE (security trade-off, documented in README "Segurança"): the
+        # official postgres image's entrypoint must start as root to
+        # initialize/chown the data directory on first boot, then drops
+        # privileges internally via gosu - forcing runAsNonRoot/runAsUser
+        # here at the Pod level breaks that startup sequence. Capability
+        # dropping and no-privilege-escalation are still enforced below.
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: POSTGRES_DB
+            # Postgres needs an empty directory to initialize into; PVCs
+            # provisioned on some local storage classes seed a lost+found/
+            # directory at their root, which breaks a plain
+            # /var/lib/postgresql/data mount. Using a subdirectory sidesteps that.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init-sql
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          securityContext:
+            # NOTE (security trade-off, corrected after real-world testing on
+            # Docker Desktop Kubernetes): see mongodb/deployment.yaml - dropping
+            # ALL capabilities strips CAP_CHOWN/CAP_SETUID/CAP_SETGID from root,
+            # which the official postgres entrypoint needs to chown PGDATA and
+            # drop privilege to the `postgres` runtime user on first boot.
+            # allowPrivilegeEscalation is kept disabled; only the capability
+            # drop is removed.
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # NOTE: exec probe `command` arrays run WITHOUT a shell, so
+          # Kubernetes' $(VAR) interpolation (which only applies to
+          # container command/args/env.value) does NOT expand here - it
+          # must be wrapped in `sh -c` with real shell $VAR syntax so the
+          # container's actual env vars get substituted at runtime.
+          # Budgets widened alongside rabbitmq/deployment.yaml's - see that
+          # file's note about the resource-constrained Docker Desktop VM
+          # observed during testing.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            failureThreshold: 60
+            periodSeconds: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: postgres-init-sql
+          configMap:
+            name: postgres-init-sql

@@ -1,0 +1,193 @@
+# Not part of the literal folder tree given in the spec (which only lists a
+# single deployment.yaml under donationservice/), but required for a
+# functional deployment: the actual DonationService solution is built as two
+# independent runnable processes - the Api (producer, this component's
+# deployment.yaml) and the Worker (consumer, here). The async
+# publish-to-RabbitMQ / consume-into-MongoDB flow this whole architecture
+# exists for simply does not run without the Worker. See README "Desvios do
+# template solicitado".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: donationservice-worker
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: donationservice-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: donationservice-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: donationservice-worker
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: campaign-system
+    spec:
+      serviceAccountName: donationservice
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: donationservice-worker
+          # Built locally from DonationService/docker/Dockerfile.Worker - see
+          # README "Como criar o cluster local" / "Como atualizar imagens".
+          image: donationservice-worker:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: ASPNETCORE_ENVIRONMENT
+
+            # ---- MongoDB connection ----
+            - name: MONGO_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MONGO_HOST
+            - name: MONGO_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MONGO_PORT
+            - name: MONGO_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_USERNAME
+            - name: MONGO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_PASSWORD
+            - name: MongoDb__ConnectionString
+              value: "mongodb://$(MONGO_ROOT_USERNAME):$(MONGO_ROOT_PASSWORD)@$(MONGO_HOST):$(MONGO_PORT)/?authSource=admin"
+            - name: MongoDb__DatabaseName
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MongoDb__DatabaseName
+            - name: MongoDb__DonationsCollectionName
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MongoDb__DonationsCollectionName
+
+            # ---- RabbitMQ ----
+            - name: RabbitMq__Host
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__Host
+            - name: RabbitMq__Port
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__Port
+            - name: RabbitMq__VirtualHost
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__VirtualHost
+            - name: RabbitMq__DonationCreatedQueueName
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__DonationCreatedQueueName
+            - name: RabbitMq__PrefetchCount
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__PrefetchCount
+            - name: RabbitMq__ConcurrencyLimit
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__ConcurrencyLimit
+            - name: RabbitMq__RetryCount
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__RetryCount
+            - name: RabbitMq__RetryIntervalSeconds
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__RetryIntervalSeconds
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_PASSWORD
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /app/logs
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 750m
+              memory: 512Mi
+          # Budget widened - see rabbitmq/deployment.yaml's note about the
+          # resource-constrained Docker Desktop VM observed during testing.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            failureThreshold: 60
+            periodSeconds: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}

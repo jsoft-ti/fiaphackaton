@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <Description>Shared, versioned integration-event contracts published by DonationService. Reference this project (or its packaged assembly) from any consumer that needs to deserialize DonationService events.</Description>
+  </PropertyGroup>
+
+</Project>

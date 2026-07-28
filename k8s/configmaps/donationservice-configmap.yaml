@@ -1,0 +1,54 @@
+# Non-secret configuration for DonationService (Api and Worker both mount
+# this ConfigMap). Keys mirror the exact ASP.NET Core configuration paths
+# from src/DonationService.{Api,Worker}/appsettings.json, so no code changes
+# are required for this to work.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: donationservice-config
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: donationservice
+    app.kubernetes.io/part-of: campaign-system
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+
+  # Consumed directly (host/port used to build MongoDb__ConnectionString via
+  # $(VAR) interpolation in the Deployments).
+  MONGO_HOST: "mongodb"
+  MONGO_PORT: "27017"
+  MongoDb__DatabaseName: "donation_service"
+  MongoDb__DonationsCollectionName: "donations"
+
+  # RabbitMq:Username / RabbitMq:Password come from rabbitmq-secret.
+  RabbitMq__Host: "rabbitmq"
+  RabbitMq__Port: "5672"
+  RabbitMq__VirtualHost: "/"
+  RabbitMq__DonationCreatedQueueName: "donation-created-queue"
+  RabbitMq__PrefetchCount: "16"
+  RabbitMq__ConcurrencyLimit: "8"
+  RabbitMq__RetryCount: "5"
+  RabbitMq__RetryIntervalSeconds: "5"
+
+  # Jwt:SecretKey itself comes from the shared jwt-secret Secret - Issuer and
+  # Audience here MUST match CampaignUserService's values exactly, since
+  # DonationService only validates tokens CampaignUserService issued.
+  Jwt__Issuer: "CampaignUserService"
+  Jwt__Audience: "CampaignUserService.Clients"
+  Jwt__ClockSkewSeconds: "60"
+
+  # NOTE (known gap - see README "Desvios do template solicitado"): this
+  # infrastructure spec only defines CampaignUserService, not a separate
+  # "CampaignService" that owns campaign data. DonationService.Api's
+  # ICampaignServiceClient gateway is pointed at CampaignUserService's
+  # in-cluster Service DNS name as the closest available target, but
+  # CampaignUserService does not currently expose a matching
+  # /api/v1/campaigns/{campaignId} endpoint - POST /api/v1/donations will
+  # therefore fail campaign validation (502 upstream_dependency_error) until
+  # a real CampaignService is built and this URL is updated to point at it.
+  CampaignService__BaseUrl: "http://campaignuserservice:8080/"
+  CampaignService__ValidationEndpointTemplate: "api/v1/campaigns/{campaignId}"
+  CampaignService__TimeoutSeconds: "10"
+  CampaignService__RetryCount: "3"
+  CampaignService__CircuitBreakerFailureThreshold: "5"
+  CampaignService__CircuitBreakerDurationSeconds: "30"

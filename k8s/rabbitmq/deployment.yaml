@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  # Single-node RabbitMQ backed by one ReadWriteOnce PVC - see postgres/deployment.yaml
+  # for why Recreate is used instead of RollingUpdate for PVC-backed singletons.
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/component: messaging
+        app.kubernetes.io/part-of: campaign-system
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # See postgres/deployment.yaml for why runAsNonRoot/runAsUser are not
+        # forced on this stock third-party image.
+        fsGroup: 999
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: amqp
+              containerPort: 5672
+              protocol: TCP
+            - name: management
+              containerPort: 15672
+              protocol: TCP
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_USER
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_PASSWORD
+            - name: RABBITMQ_DEFAULT_VHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__VirtualHost
+          volumeMounts:
+            - name: rabbitmq-storage
+              mountPath: /var/lib/rabbitmq
+          securityContext:
+            # NOTE (security trade-off, corrected after real-world testing on
+            # Docker Desktop Kubernetes): see mongodb/deployment.yaml - dropping
+            # ALL capabilities strips CAP_CHOWN/CAP_SETUID/CAP_SETGID from root,
+            # which the official rabbitmq entrypoint needs to chown
+            # /var/lib/rabbitmq and drop privilege to the `rabbitmq` runtime
+            # user on first boot. allowPrivilegeEscalation is kept disabled;
+            # only the capability drop is removed.
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          # NOTE: budgets widened after real-world testing on a
+          # resource-constrained Docker Desktop VM, where RabbitMQ's Erlang
+          # VM boot (epmd + Mnesia recovery) was observed taking ~170s
+          # instead of the usual few seconds - well past the original 90s
+          # startupProbe budget, causing kubelet to kill an otherwise-healthy
+          # broker mid-boot (or shortly after, via a livenessProbe that
+          # couldn't keep up either). These generous windows cost nothing on
+          # a healthy machine and tolerate a loaded one.
+          # NOTE: timeoutSeconds was missing here, which defaults to 1s - and
+          # `rabbitmq-diagnostics` itself spins up a short-lived Erlang node
+          # to talk to the running one, which reliably takes longer than 1s
+          # under CPU contention. Confirmed via `kubectl describe pod`:
+          # "Startup probe failed: command timed out ... timed out after 1s"
+          # repeated ~100 times even while RabbitMQ was healthy and listening.
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 15
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+      volumes:
+        - name: rabbitmq-storage
+          persistentVolumeClaim:
+            claimName: rabbitmq-pvc

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="AutoMapper" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DonationService.Domain\DonationService.Domain.csproj" />
+    <ProjectReference Include="..\DonationService.Contracts\DonationService.Contracts.csproj" />
+    <ProjectReference Include="..\DonationService.SharedKernel\DonationService.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

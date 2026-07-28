@@ -1,0 +1,16 @@
+bin/
+obj/
+out/
+*.user
+.vs/
+logs/
+*.log
+.env
+!.env.example
+.idea/
+.vscode/
+TestResults/
+coverage/
+*.trx
+.DS_Store
+Thumbs.db

@@ -1,0 +1,274 @@
+# DonationService.Api - the HTTP surface (POST/GET /api/v1/donations).
+# See worker-deployment.yaml for the second, independent process
+# (DonationService.Worker) that this architecture also requires.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: donationservice-api
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: donationservice-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: donationservice-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: donationservice-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: campaign-system
+    spec:
+      serviceAccountName: donationservice
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: donationservice-api
+          # Built locally from DonationService/docker/Dockerfile.Api - see
+          # README "Como criar o cluster local" / "Como atualizar imagens".
+          image: donationservice-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: ASPNETCORE_ENVIRONMENT
+
+            # ---- Postgres connection (shared instance - see
+            # postgres/init-configmap.yaml for why DonationService uses the
+            # same physical database, isolated in its own schema) ----
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: ConnectionStrings__DonationServiceDb
+              value: "Host=$(POSTGRES_HOST);Port=$(POSTGRES_PORT);Database=$(POSTGRES_DB);Username=$(POSTGRES_USER);Password=$(POSTGRES_PASSWORD)"
+
+            # ---- MongoDB connection ----
+            - name: MONGO_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MONGO_HOST
+            - name: MONGO_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MONGO_PORT
+            - name: MONGO_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_USERNAME
+            - name: MONGO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_PASSWORD
+            - name: MongoDb__ConnectionString
+              value: "mongodb://$(MONGO_ROOT_USERNAME):$(MONGO_ROOT_PASSWORD)@$(MONGO_HOST):$(MONGO_PORT)/?authSource=admin"
+            - name: MongoDb__DatabaseName
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MongoDb__DatabaseName
+            - name: MongoDb__DonationsCollectionName
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MongoDb__DonationsCollectionName
+
+            # ---- RabbitMQ ----
+            - name: RabbitMq__Host
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__Host
+            - name: RabbitMq__Port
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__Port
+            - name: RabbitMq__VirtualHost
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__VirtualHost
+            - name: RabbitMq__DonationCreatedQueueName
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__DonationCreatedQueueName
+            - name: RabbitMq__PrefetchCount
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__PrefetchCount
+            - name: RabbitMq__ConcurrencyLimit
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__ConcurrencyLimit
+            - name: RabbitMq__RetryCount
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__RetryCount
+            - name: RabbitMq__RetryIntervalSeconds
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: RabbitMq__RetryIntervalSeconds
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: RABBITMQ_PASSWORD
+
+            # ---- JWT (validates tokens issued by CampaignUserService) ----
+            - name: Jwt__SecretKey
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: JWT_SECRET
+            - name: Jwt__Issuer
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: Jwt__Issuer
+            - name: Jwt__Audience
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: Jwt__Audience
+            - name: Jwt__ClockSkewSeconds
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: Jwt__ClockSkewSeconds
+
+            # ---- CampaignService gateway (see donationservice-configmap.yaml
+            # note about this known architectural gap) ----
+            - name: CampaignService__BaseUrl
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: CampaignService__BaseUrl
+            - name: CampaignService__ValidationEndpointTemplate
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: CampaignService__ValidationEndpointTemplate
+            - name: CampaignService__TimeoutSeconds
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: CampaignService__TimeoutSeconds
+            - name: CampaignService__RetryCount
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: CampaignService__RetryCount
+            - name: CampaignService__CircuitBreakerFailureThreshold
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: CampaignService__CircuitBreakerFailureThreshold
+            - name: CampaignService__CircuitBreakerDurationSeconds
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: CampaignService__CircuitBreakerDurationSeconds
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /app/logs
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 750m
+              memory: 512Mi
+          # Budget widened - see rabbitmq/deployment.yaml's note about the
+          # resource-constrained Docker Desktop VM observed during testing.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            failureThreshold: 60
+            periodSeconds: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}

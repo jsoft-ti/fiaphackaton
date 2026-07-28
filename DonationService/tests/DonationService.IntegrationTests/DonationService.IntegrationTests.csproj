@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.MongoDb" />
+    <PackageReference Include="Testcontainers.RabbitMq" />
+    <PackageReference Include="MassTransit.TestFramework" />
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Only the Api host is referenced here (WebApplicationFactory&lt;Program&gt;). Consumer/Worker
+         tests live in the separate DonationService.ConsumerTests project to avoid an ambiguous
+         top-level "Program" symbol that would occur if both Api and Worker (each with their own
+         implicit top-level Program class) were referenced from the same test assembly. -->
+    <ProjectReference Include="..\..\src\DonationService.Api\DonationService.Api.csproj" />
+    <ProjectReference Include="..\..\src\DonationService.Application\DonationService.Application.csproj" />
+    <ProjectReference Include="..\..\src\DonationService.Infrastructure\DonationService.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\DonationService.Contracts\DonationService.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

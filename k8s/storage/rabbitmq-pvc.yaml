@@ -1,0 +1,20 @@
+# NOTE: not part of the literal folder tree given in the spec (which only
+# listed postgres-pvc.yaml and mongodb-pvc.yaml under storage/), but the
+# RabbitMQ requirements explicitly ask for a PersistentVolumeClaim, so it is
+# added here for consistency with the other two stateful components. See
+# README.md "Desvios do template solicitado".
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

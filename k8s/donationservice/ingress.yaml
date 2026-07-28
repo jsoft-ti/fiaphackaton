@@ -1,0 +1,28 @@
+# Requires the ingress-nginx controller (see README "Como criar o cluster
+# local"). /api/donations is rewritten to DonationService's real, versioned
+# route template (/api/v1/donations/...) so the literal path requested in
+# the spec works against the compiled binary without any code changes.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: donationservice
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: donationservice-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: campaign-system
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$1
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api/(donations.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: donationservice
+                port:
+                  name: http

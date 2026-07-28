@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1
+
+# ---- Build stage ----
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+
+COPY Directory.Build.props Directory.Packages.props DonationService.sln ./
+COPY src/DonationService.SharedKernel/DonationService.SharedKernel.csproj src/DonationService.SharedKernel/
+COPY src/DonationService.Contracts/DonationService.Contracts.csproj src/DonationService.Contracts/
+COPY src/DonationService.Domain/DonationService.Domain.csproj src/DonationService.Domain/
+COPY src/DonationService.Application/DonationService.Application.csproj src/DonationService.Application/
+COPY src/DonationService.Infrastructure/DonationService.Infrastructure.csproj src/DonationService.Infrastructure/
+COPY src/DonationService.Worker/DonationService.Worker.csproj src/DonationService.Worker/
+
+RUN dotnet restore src/DonationService.Worker/DonationService.Worker.csproj
+
+COPY src/ src/
+
+RUN dotnet publish src/DonationService.Worker/DonationService.Worker.csproj \
+    -c Release \
+    -o /app/publish \
+    --no-restore
+
+# ---- Runtime stage ----
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --system --gid 1000 donationservice \
+    && adduser --system --uid 1000 --ingroup donationservice donationservice
+
+# Explicit chown (not just COPY --chown, which some docker builds silently
+# ignore on multi-stage COPY --from unless BuildKit is active): without it
+# these files land owned by root, and the runtime container drops to the
+# unprivileged `donationservice` user (uid 1000) below - which then fails to
+# even open appsettings.json ("Access to the path '/app/appsettings.json' is
+# denied"). Confirmed via real crash logs on Docker Desktop Kubernetes.
+COPY --from=build --chown=donationservice:donationservice /app/publish .
+RUN chown -R donationservice:donationservice /app
+
+ENV ASPNETCORE_URLS=http://0.0.0.0:8081
+ENV DOTNET_RUNNING_IN_CONTAINER=true
+EXPOSE 8081
+
+USER donationservice
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD curl -f http://localhost:8081/health/live || exit 1
+
+ENTRYPOINT ["dotnet", "DonationService.Worker.dll"]

@@ -1,0 +1,2 @@
+EF Core migrations generated with `dotnet ef migrations add InitialCreate` will be placed in this folder.
+See README.md -> "Migrations e banco de dados".

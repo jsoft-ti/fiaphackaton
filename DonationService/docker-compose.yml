@@ -1,0 +1,129 @@
+name: donationservice
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: donationservice-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-donationservice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-donationservice}
+      POSTGRES_DB: ${POSTGRES_DB:-donationservice}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-donationservice}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - donationservice-net
+    profiles:
+      - local-db
+
+  mongodb:
+    image: mongo:7
+    container_name: donationservice-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-donation_service}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - donationservice-net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: donationservice-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_AMQP_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - donationservice-net
+
+  donation-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.Api
+    container_name: donationservice-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DonationServiceDb: ${DONATIONSERVICE_DB_CONNECTION}
+      MongoDb__ConnectionString: ${MONGODB_CONNECTION:-mongodb://mongodb:27017}
+      MongoDb__DatabaseName: ${MONGO_DATABASE:-donation_service}
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
+      RabbitMq__Port: ${RABBITMQ_AMQP_PORT:-5672}
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__SecretKey: ${JWT_SECRET_KEY}
+      CampaignService__BaseUrl: ${CAMPAIGN_SERVICE_BASE_URL}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - donationservice-net
+
+  donation-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.Worker
+    container_name: donationservice-worker
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      MongoDb__ConnectionString: ${MONGODB_CONNECTION:-mongodb://mongodb:27017}
+      MongoDb__DatabaseName: ${MONGO_DATABASE:-donation_service}
+      RabbitMq__Host: ${RABBITMQ_HOST:-rabbitmq}
+      RabbitMq__Port: ${RABBITMQ_AMQP_PORT:-5672}
+      RabbitMq__Username: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${WORKER_PORT:-8081}:8081"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - donationservice-net
+
+networks:
+  donationservice-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  mongo-data:
+  rabbitmq-data:

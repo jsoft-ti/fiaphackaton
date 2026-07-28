@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  # No storageClassName set on purpose: Minikube, Kind and Docker Desktop
+  # Kubernetes all ship a default StorageClass (standard / hostpath /
+  # docker-desktop respectively) capable of dynamic provisioning, so this
+  # PVC binds automatically on every one of the three supported local
+  # clusters without further configuration.

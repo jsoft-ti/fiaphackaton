@@ -1,0 +1,30 @@
+## .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+*.dll
+*.pdb
+
+## Logs
+logs/
+*.log
+
+## Environment
+.env
+!.env.example
+
+## Rider / VSCode
+.idea/
+.vscode/
+
+## Test results
+TestResults/
+coverage/
+*.trx
+
+## OS
+.DS_Store
+Thumbs.db

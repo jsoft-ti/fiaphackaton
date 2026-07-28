@@ -1,0 +1,198 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: campaignuserservice
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: campaignuserservice
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: campaignuserservice
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: campaignuserservice
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: campaign-system
+    spec:
+      serviceAccountName: campaignuserservice
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: campaignuserservice
+          # Built locally from CampaignUserService/Dockerfile - see README
+          # "Como criar o cluster local" / "Como atualizar imagens" for the
+          # exact build+load commands for Minikube/Kind/Docker Desktop.
+          image: campaignuserservice-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: ASPNETCORE_ENVIRONMENT
+
+            # ---- Connection string, composed from discrete parts via K8s'
+            # native $(VAR) env-value interpolation - host/db name are
+            # non-secret (ConfigMap), user/password are secret (Secret), and
+            # no single field or the final string is ever hard-coded here.
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: ConnectionStrings__DefaultConnection
+              value: "Host=$(POSTGRES_HOST);Port=$(POSTGRES_PORT);Database=$(POSTGRES_DB);Username=$(POSTGRES_USER);Password=$(POSTGRES_PASSWORD)"
+
+            # ---- JWT (shared signing key with DonationService) ----
+            - name: Jwt__Secret
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: JWT_SECRET
+            - name: Jwt__Issuer
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: Jwt__Issuer
+            - name: Jwt__Audience
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: Jwt__Audience
+            - name: Jwt__AccessTokenExpirationMinutes
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: Jwt__AccessTokenExpirationMinutes
+            - name: Jwt__RefreshTokenExpirationDays
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: Jwt__RefreshTokenExpirationDays
+
+            # ---- Initial GestorOng admin seed ----
+            - name: AdminSeed__FirstName
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: AdminSeed__FirstName
+            - name: AdminSeed__LastName
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: AdminSeed__LastName
+            - name: AdminSeed__Email
+              valueFrom:
+                secretKeyRef:
+                  name: campaignuserservice-secret
+                  key: ADMIN_EMAIL
+            - name: AdminSeed__Password
+              valueFrom:
+                secretKeyRef:
+                  name: campaignuserservice-secret
+                  key: ADMIN_PASSWORD
+
+            - name: Smtp__Enabled
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: Smtp__Enabled
+            - name: Cors__AllowedOrigins__0
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: Cors__AllowedOrigins__0
+            - name: Database__AutoMigrateAndSeed
+              valueFrom:
+                configMapKeyRef:
+                  name: campaignuserservice-config
+                  key: Database__AutoMigrateAndSeed
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /app/logs
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Budget widened alongside the database Deployments' - see
+          # rabbitmq/deployment.yaml's note about the resource-constrained
+          # Docker Desktop VM observed during testing.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            failureThreshold: 60
+            periodSeconds: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}

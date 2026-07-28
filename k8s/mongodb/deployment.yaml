@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  # Single replica, Recreate strategy: same reasoning as postgres/deployment.yaml
+  # - one ReadWriteOnce PVC cannot be safely shared by two mongod processes.
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongodb
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: campaign-system
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # See postgres/deployment.yaml for why runAsNonRoot/runAsUser are not
+        # forced on this stock third-party image.
+        fsGroup: 999
+      containers:
+        - name: mongodb
+          image: mongo:7
+          imagePullPolicy: IfNotPresent
+          # --auth is NOT enabled automatically just by providing root
+          # credentials via env vars - it must be requested explicitly, or
+          # the server would still accept unauthenticated connections.
+          args: ["--auth"]
+          ports:
+            - name: mongodb
+              containerPort: 27017
+              protocol: TCP
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_USERNAME
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: MONGO_ROOT_PASSWORD
+            - name: MONGO_INITDB_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: donationservice-config
+                  key: MongoDb__DatabaseName
+          volumeMounts:
+            - name: mongodb-storage
+              mountPath: /data/db
+          securityContext:
+            # NOTE (security trade-off, corrected after real-world testing on
+            # Docker Desktop Kubernetes): dropping ALL Linux capabilities also
+            # strips CAP_CHOWN/CAP_FOWNER/CAP_SETUID/CAP_SETGID from root, which
+            # the official mongo entrypoint needs on first boot to `chown` the
+            # PVC-backed data directory and then drop from root down to the
+            # low-privileged `mongodb` runtime user. Without them the container
+            # crash-loops with "chown: Operation not permitted". allowPrivilegeEscalation
+            # is kept disabled; only the capability drop is removed.
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          # NOTE: switched from an `exec: mongosh --eval ...` probe to a plain
+          # TCP check after real-world testing on Docker Desktop Kubernetes -
+          # mongod itself was starting and listening on 27017 correctly (per
+          # its own logs), but the `mongosh` exec probe failed on every
+          # attempt for unclear reasons (PATH/$HOME/auth context differences
+          # for a freshly-exec'd process versus the entrypoint's own shell),
+          # causing kubelet to kill an otherwise-healthy container once
+          # startupProbe's failure threshold was reached. A TCP check on the
+          # mongod port avoids exec entirely and is a standard, reliable
+          # liveness signal for this purpose.
+          # Budgets widened alongside rabbitmq/deployment.yaml's - see that
+          # file's note about the resource-constrained Docker Desktop VM
+          # observed during testing.
+          startupProbe:
+            tcpSocket:
+              port: mongodb
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: mongodb
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: mongodb
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: mongodb-storage
+          persistentVolumeClaim:
+            claimName: mongodb-pvc

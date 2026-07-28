@@ -1,0 +1,46 @@
+# Requires the ingress-nginx controller (see README "Como criar o cluster
+# local"). /api/users is rewritten to CampaignUserService's real, versioned
+# route template (/api/v1/users/...) so the literal path requested in the
+# spec works against the compiled binary without any code changes. /api/auth
+# and /api/roles are additionally routed here (beyond the literal spec) so
+# login/registration and role management - both required for the system to
+# be usable at all through this Ingress - are reachable too; see README
+# "Desvios do template solicitado".
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: campaignuserservice
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: campaignuserservice
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: campaign-system
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /api/v1/$1
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api/(users.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: campaignuserservice
+                port:
+                  name: http
+          - path: /api/(auth.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: campaignuserservice
+                port:
+                  name: http
+          - path: /api/(roles.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: campaignuserservice
+                port:
+                  name: http

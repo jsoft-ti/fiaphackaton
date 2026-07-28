@@ -1,0 +1,266 @@
+# Least-privilege pod-to-pod communication for the campaign-system namespace.
+#
+# IMPORTANT (local clusters): NetworkPolicy is only ENFORCED if the cluster's
+# CNI plugin implements it. Minikube's default "docker" driver CNI and
+# Kind's default "kindnet" CNI do NOT enforce NetworkPolicy out of the box -
+# these manifests are still applied (and are correct/required for any
+# NetworkPolicy-capable CNI, e.g. Calico, Cilium, or Docker Desktop with a
+# compatible CNI), but on a stock Minikube/Kind cluster they will have no
+# actual traffic-blocking effect unless you additionally enable a
+# NetworkPolicy-capable CNI (e.g. `minikube start --cni=calico`, or
+# `minikube addons enable calico`). See README "Segurança".
+---
+# 1. Default-deny baseline: every Pod in the namespace starts with zero
+#    allowed ingress/egress. Every flow the system actually needs is opened
+#    explicitly below (default-deny + explicit-allow = least privilege).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: campaign-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 2. DNS is required by every Pod to resolve Service hostnames (postgres,
+#    mongodb, rabbitmq, campaignuserservice, donationservice) - without this,
+#    default-deny-all above would break all internal DNS resolution.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: campaign-system
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# 3. Ingress into CampaignUserService: from the NGINX ingress controller
+#    (external traffic - /api/users, /api/auth, /api/roles) and from
+#    DonationService.Api (its CampaignService gateway call).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: campaignuserservice-allow-ingress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: campaignuserservice
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: donationservice-api
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# 4. Egress from CampaignUserService: only to PostgreSQL.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: campaignuserservice-allow-egress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: campaignuserservice
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# 5. Ingress into DonationService.Api: from the NGINX ingress controller only
+#    (/api/donations).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: donationservice-api-allow-ingress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: donationservice-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# 6. Egress from DonationService.Api: PostgreSQL (write-side + outbox),
+#    MongoDB (reads), RabbitMQ (publish), CampaignUserService (campaign
+#    validation gateway).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: donationservice-api-allow-egress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: donationservice-api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mongodb
+      ports:
+        - protocol: TCP
+          port: 27017
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: campaignuserservice
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# 7. DonationService.Worker takes no ingress from the ingress controller (it
+#    has no public API) - only egress to MongoDB and RabbitMQ.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: donationservice-worker-allow-egress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: donationservice-worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mongodb
+      ports:
+        - protocol: TCP
+          port: 27017
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+---
+# 8. PostgreSQL only accepts connections from the two services that use it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-allow-ingress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: campaignuserservice
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: donationservice-api
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# 9. MongoDB only accepts connections from DonationService's two processes.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mongodb-allow-ingress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: donationservice-api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: donationservice-worker
+      ports:
+        - protocol: TCP
+          port: 27017
+---
+# 10. RabbitMQ only accepts AMQP connections from DonationService's two
+#     processes. Port 15672 (management UI) is intentionally NOT opened here
+#     - `kubectl port-forward` (see README "Como acessar RabbitMQ
+#     Management") bypasses Service/NetworkPolicy ingress rules entirely, so
+#     it still works for operators without widening this policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq-allow-ingress
+  namespace: campaign-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: donationservice-api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: donationservice-worker
+      ports:
+        - protocol: TCP
+          port: 5672

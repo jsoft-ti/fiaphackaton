@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Moq" />
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DonationService.Application\DonationService.Application.csproj" />
+    <ProjectReference Include="..\..\src\DonationService.Domain\DonationService.Domain.csproj" />
+    <ProjectReference Include="..\..\src\DonationService.Infrastructure\DonationService.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\DonationService.Contracts\DonationService.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\DonationService.SharedKernel\DonationService.SharedKernel.csproj" />
+  </ItemGroup>
+
+</Project>

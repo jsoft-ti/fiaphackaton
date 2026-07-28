@@ -1,0 +1,16 @@
+# Local development overrides. Applied automatically by `docker compose up`
+# together with docker-compose.yml (no extra flags needed).
+services:
+  campaign-user-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__AutoMigrateAndSeed: "true"
+    ports:
+      - "8080:8080"
+
+  campaign-user-db:
+    ports:
+      - "5432:5432"

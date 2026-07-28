@@ -1,0 +1,33 @@
+# Automatically applied on top of docker-compose.yml by `docker compose up`
+# for local development (rebuild on demand, verbose logging, Swagger
+# reachable, management UI ports exposed).
+
+services:
+  donation-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.Api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_ENVIRONMENT: Development
+    ports:
+      - "8080:8080"
+
+  donation-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.Worker
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      DOTNET_ENVIRONMENT: Development
+    ports:
+      - "8081:8081"
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672" # RabbitMQ management UI: http://localhost:15672
+
+  mongodb:
+    ports:
+      - "27017:27017"

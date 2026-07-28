@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>e1a2b3c4-f5a6-4b7c-8d9e-0f1a2b3c4d5e</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Lets this Worker SDK project host a minimal Kestrel endpoint for
+         /health, /health/live, /health/ready (Docker healthcheck target),
+         without switching to Microsoft.NET.Sdk.Web. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Serilog.Enrichers.Environment" />
+    <PackageReference Include="Serilog.Enrichers.CorrelationId" />
+    <PackageReference Include="Serilog.Exceptions" />
+    <PackageReference Include="AspNetCore.HealthChecks.MongoDb" />
+    <PackageReference Include="AspNetCore.HealthChecks.Rabbitmq" />
+    <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DonationService.Application\DonationService.Application.csproj" />
+    <ProjectReference Include="..\DonationService.Infrastructure\DonationService.Infrastructure.csproj" />
+    <ProjectReference Include="..\DonationService.Contracts\DonationService.Contracts.csproj" />
+    <ProjectReference Include="..\DonationService.SharedKernel\DonationService.SharedKernel.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.NET.Sdk.Worker does not auto-copy appsettings*.json the
+         way Microsoft.NET.Sdk.Web does - do it explicitly. -->
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.Development.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

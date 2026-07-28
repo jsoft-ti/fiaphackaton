@@ -1,0 +1,70 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Deploy the entire stack with a single command:
+#   kubectl apply -k k8s/
+# Remove it with:
+#   kubectl delete -k k8s/
+#
+# kubectl sorts applied resources by kind internally (Namespace and
+# Secrets/ConfigMaps before workloads, etc.), so listing order here does not
+# need to be a strict dependency graph - it is grouped by component purely
+# for human readability.
+
+namespace: campaign-system
+
+resources:
+  # Namespace
+  - namespace.yaml
+
+  # Storage
+  - storage/postgres-pvc.yaml
+  - storage/mongodb-pvc.yaml
+  - storage/rabbitmq-pvc.yaml
+
+  # Secrets
+  - secrets/postgres-secret.yaml
+  - secrets/mongodb-secret.yaml
+  - secrets/rabbitmq-secret.yaml
+  - secrets/jwt-secret.yaml
+  - secrets/campaignuserservice-secret.yaml
+
+  # ConfigMaps
+  - configmaps/campaignuserservice-configmap.yaml
+  - configmaps/donationservice-configmap.yaml
+
+  # PostgreSQL (shared instance - CampaignUserService's own schema, and
+  # DonationService's schema - see postgres/init-configmap.yaml)
+  - postgres/init-configmap.yaml
+  - postgres/deployment.yaml
+  - postgres/service.yaml
+
+  # MongoDB (DonationService's read model)
+  - mongodb/deployment.yaml
+  - mongodb/service.yaml
+
+  # RabbitMQ
+  - rabbitmq/deployment.yaml
+  - rabbitmq/service.yaml
+
+  # CampaignUserService
+  - campaignuserservice/serviceaccount.yaml
+  - campaignuserservice/deployment.yaml
+  - campaignuserservice/service.yaml
+  - campaignuserservice/ingress.yaml
+  - campaignuserservice/hpa.yaml
+
+  # DonationService (Api + Worker)
+  - donationservice/serviceaccount.yaml
+  - donationservice/deployment.yaml
+  - donationservice/worker-deployment.yaml
+  - donationservice/service.yaml
+  - donationservice/worker-service.yaml
+  - donationservice/ingress.yaml
+  - donationservice/hpa.yaml
+
+  # NetworkPolicy
+  - network/network-policy.yaml
+
+commonAnnotations:
+  app.kubernetes.io/managed-by: kustomize

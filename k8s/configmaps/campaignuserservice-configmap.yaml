@@ -1,0 +1,47 @@
+# Non-secret configuration for CampaignUserService. Keys mirror the exact
+# ASP.NET Core configuration paths from src/CampaignUserService.Api/appsettings.json
+# (via the standard "__" env-var-to-config-path convention), so no code
+# changes are required for this to work.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: campaignuserservice-config
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: campaignuserservice
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: campaign-system
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+
+  # Consumed directly (host/port used to build ConnectionStrings__DefaultConnection
+  # via $(VAR) interpolation in the Deployment - see deployment.yaml).
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "campaign_user_service"
+
+  # Jwt:Secret itself comes from the shared jwt-secret Secret - only the
+  # non-confidential parts live here. Issuer/Audience MUST match the values
+  # DonationService is configured with (see donationservice-configmap.yaml).
+  Jwt__Issuer: "CampaignUserService"
+  Jwt__Audience: "CampaignUserService.Clients"
+  Jwt__AccessTokenExpirationMinutes: "15"
+  Jwt__RefreshTokenExpirationDays: "7"
+
+  # AdminSeed:Email / AdminSeed:Password come from campaignuserservice-secret.
+  AdminSeed__FirstName: "Admin"
+  AdminSeed__LastName: "Master"
+
+  # Smtp left disabled (Smtp:Enabled already defaults to false in
+  # appsettings.json) - no outbound mail server is provisioned in this
+  # local cluster topology.
+  Smtp__Enabled: "false"
+
+  Cors__AllowedOrigins__0: "http://localhost:3000"
+
+  # No EF Core migrations exist yet in this codebase (see README) - the
+  # schema is bootstrapped instead via sql/schema.sql, mounted into the
+  # postgres Pod's /docker-entrypoint-initdb.d/. AutoMigrateAndSeed is kept
+  # "true" only to run the DbSeeder's idempotent role/admin-user seeding
+  # logic; MigrateAsync() itself is a safe no-op with zero EF migrations.
+  Database__AutoMigrateAndSeed: "true"

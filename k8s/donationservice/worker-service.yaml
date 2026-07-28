@@ -1,0 +1,22 @@
+# Not required for the Worker to function (it has no HTTP API, only its
+# RabbitMQ consumer) - exposed purely so /health, /health/live, /health/ready
+# can be reached via `kubectl port-forward` for troubleshooting, without
+# needing `kubectl exec`.
+apiVersion: v1
+kind: Service
+metadata:
+  name: donationservice-worker
+  namespace: campaign-system
+  labels:
+    app.kubernetes.io/name: donationservice-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: campaign-system
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: donationservice-worker
+  ports:
+    - name: http
+      port: 8081
+      targetPort: http
+      protocol: TCP
